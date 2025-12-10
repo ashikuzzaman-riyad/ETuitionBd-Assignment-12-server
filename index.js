@@ -1,4 +1,4 @@
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const app = express();
 const cors = require("cors");
@@ -29,18 +29,34 @@ async function run() {
     const db = client.db("e-tuition");
     const tuitionCollection = db.collection("tuition");
 
-   app.get("/tuition", async (req, res) => {
- 
-});
+    app.get("/new-tuitions", async (req, res) => {
+      const query = {};
+      const { email } = req.query;
+      if (email) {
+        query.studentEmail = email;
+      }
+      const cursor = tuitionCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
 
-  // get email data 
-   
+    // get email data
 
-// post tuition
+    // post tuition
     app.post("/new-tuitions", async (req, res) => {
       const tuition = req.body;
-      const result = await tuitionCollection.insertOne(tuition)
-      res.send(result)
+     
+   
+      const result = await tuitionCollection.insertOne(tuition);
+      res.send(result);
+    });
+    // tuition post delete
+     app.delete("/new-tuitions/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+
+      const result = await tuitionCollection.deleteOne(query);
+      res.send(result);
     });
 
     // Send a ping to confirm a successful connection
