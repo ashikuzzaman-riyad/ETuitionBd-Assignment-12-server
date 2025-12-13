@@ -181,7 +181,7 @@ async function run() {
       res.send(result);
     });
 
-    //  tuitions data get apis
+    //  tuitions data get api
     app.get("/new-tuitions", verifyFBToken, async (req, res) => {
       const query = {};
       const { email, status } = req.query;
