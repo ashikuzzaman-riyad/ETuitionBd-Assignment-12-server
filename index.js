@@ -251,23 +251,27 @@ async function run() {
       res.send(result);
     });
     // tuition pacth data
-    app.patch(
-      "/new-tuitions/:id",
+    app.patch("/new-tuitions/:id", async (req, res) => {
+  const id = req.params.id;
+  const {  studentSubjects, studentClass, studentLocation, studentBudget,} = req.body;
 
-      
-      async (req, res) => {
-        const id = req.params.id;
-        const data = req.body;
-        const query = { _id: new ObjectId(id) };
-        const updatedDoc = {
-          $set: {
-            studentSubject: data.studentSubject
-          },
-        };
-        const result = await userCollection.updateOne(query, updatedDoc);
-        res.send(result);
-      }
-    );
+  const result = await tuitionCollection.updateOne(
+    { _id: new ObjectId(id) },
+    {
+       $set: {
+          
+          studentBudget,
+          studentClass,
+          studentLocation,
+          studentSubjects,
+          updatedAt: new Date(),
+        },
+    }
+  );
+
+  res.send(result);
+});
+
 
     //  tutor patch data
 
