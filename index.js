@@ -56,31 +56,73 @@ async function run() {
     const userCollection = db.collection("users");
     const tuitionCollection = db.collection("tuition");
 
+    // must be used after verifyFBToken middleware
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await userCollection.findOne(query);
 
-    // get single user by id
-app.get("/users/:id",  async (req, res) => {
-  const id = req.params.id;
-  const user = await userCollection.findOne({ _id: new ObjectId(id) });
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
 
-  if (!user) {
-    return res.status(404).send({ message: "User not found" });
-  }
+      next();
+    };
 
-  res.send(user);
-});
+    // role base data
+    app.get("/users/tutors", async (req, res) => {
+      const tutors = await userCollection.find({ role: "tutor" }).toArray();
+      res.send(tutors);
+    });
 
-// Delete a user by ID 
-app.delete("/users/:id", verifyFBToken, async (req, res) => {
-  const id = req.params.id;
-  const result = await userCollection.deleteOne({ _id: new ObjectId(id) });
+    //  role base data get
+    app.get("/users/:email/role", async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const user = await userCollection.findOne(query);
+      res.send({ role: user?.role || "user" });
+    });
 
-  if (result.deletedCount === 0) {
-    return res.status(404).send({ message: "User not found" });
-  }
+    // get data for user
+    app.get("/user/:id", async (req, res) => {
+      const { email } = req.query;
+      if (email) {
+        query.studentEmail = email;
+      }
 
-  res.send({ message: "User deleted successfully", deletedCount: result.deletedCount });
-});
+      if (!user) {
+        return res.status(404).send({ message: "User not found" });
+      }
 
+      res.send(user);
+    });
+
+    // get single user by id in admin
+    app.get("/users/:id", async (req, res) => {
+      const id = req.params.id;
+      const user = await userCollection.findOne({ _id: new ObjectId(id) });
+
+      if (!user) {
+        return res.status(404).send({ message: "User not found" });
+      }
+
+      res.send(user);
+    });
+
+    // Delete a user by ID
+    app.delete("/users/:id", verifyFBToken, async (req, res) => {
+      const id = req.params.id;
+      const result = await userCollection.deleteOne({ _id: new ObjectId(id) });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).send({ message: "User not found" });
+      }
+
+      res.send({
+        message: "User deleted successfully",
+        deletedCount: result.deletedCount,
+      });
+    });
 
     // users related apis
     app.get("/users", verifyFBToken, async (req, res) => {
@@ -104,19 +146,24 @@ app.delete("/users/:id", verifyFBToken, async (req, res) => {
       res.send(result);
     });
 
-    // set role 
-     app.patch('/users/:id/role', verifyFBToken,  async (req, res) => {
-            const id = req.params.id;
-            const roleInfo = req.body;
-            const query = { _id: new ObjectId(id) }
-            const updatedDoc = {
-                $set: {
-                    role: roleInfo.role
-                }
-            }
-            const result = await userCollection.updateOne(query, updatedDoc)
-            res.send(result);
-        })
+    // set role
+    app.patch(
+      "/users/:id/role",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const roleInfo = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            role: roleInfo.role,
+          },
+        };
+        const result = await userCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
 
     // user data post api
     app.post("/users", async (req, res) => {
@@ -137,15 +184,54 @@ app.delete("/users/:id", verifyFBToken, async (req, res) => {
     //  tuitions data get api
     app.get("/new-tuitions", verifyFBToken, async (req, res) => {
       const query = {};
-      const { email } = req.query;
+      const { email, status } = req.query;
       if (email) {
         query.studentEmail = email;
       }
+      if (status) {
+        query.status = status;
+      }
+
       const options = { sort: { createdAt: -1 } };
       const cursor = tuitionCollection.find(query, options);
       const result = await cursor.toArray();
       res.send(result);
     });
+
+//  tutor data get 
+
+    app.get("/new-tuitions/status",  async (req, res) => {
+      const query = {};
+      const { tutorEmail, status } = req.query;
+      if (tutorEmail) {
+        query.tutorEmail = tutorEmail;
+      }
+      if (status) {
+        query.status = status;
+      }
+
+      const options = { sort: { createdAt: -1 } };
+      const cursor = tuitionCollection.find(query, options);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    // admin ar data
+    // app.get("/new-tuition", async (req, res) => {
+    //   const query = {};
+    //   const { email, status } = req.query;
+    //   if (email) {
+    //     query.studentEmail = email;
+    //   }
+    //   if (status) {
+    //     query.status = status;
+    //   }
+
+    //   const options = { sort: { createdAt: -1 } };
+    //   const cursor = tuitionCollection.find(query, options);
+    //   const result = await cursor.toArray();
+    //   res.send(result);
+    // });
 
     // get email data
 
@@ -165,28 +251,47 @@ app.delete("/users/:id", verifyFBToken, async (req, res) => {
       res.send(result);
     });
     // tuition pacth data
-    app.patch("/new-tuitions/:id", async (req, res) => {
-      const id = req.params.id;
-      const data = req.body;
+    app.patch(
+      "/new-tuitions/:id",
 
-      const query = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: {
-          studentSubjects: data.studentSubjects,
-          studentClass: data.studentClass,
-          studentBudget: data.studentBudget,
-          studentLocation: data.studentLocation,
+      
+      async (req, res) => {
+        const id = req.params.id;
+        const data = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            studentSubject: data.studentSubject
+          },
+        };
+        const result = await userCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
+
+    //  tutor patch data
+
+    app.patch("/new-tuitions/status/:id", async (req, res) => {
+  const id = req.params.id;
+  const { status, tutorEmail, tutorName, qualification, experience, expectedSalary } = req.body;
+
+  const result = await tuitionCollection.updateOne(
+    { _id: new ObjectId(id) },
+    {
+       $set: {
+          status,
+          tutorEmail,
+          tutorName,
+          qualification,
+          experience,
+          expectedSalary,
+          updatedAt: new Date(), // track when tutor applied
         },
-      };
-      const options = {};
+    }
+  );
 
-      const result = await tuitionCollection.updateOne(
-        query,
-        updateDoc,
-        options
-      );
-      res.send(result);
-    });
+  res.send(result);
+});
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
