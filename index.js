@@ -181,7 +181,7 @@ async function run() {
       res.send(result);
     });
 
-    //  tuitions data get api
+    //  tuitions data get ap
     app.get("/new-tuitions", async (req, res) => {
       const query = {};
       const { email, status } = req.query;
