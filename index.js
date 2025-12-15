@@ -7,14 +7,11 @@ const cors = require("cors");
 const stripe = require("stripe")(process.env.Stripe_pass);
 const admin = require("firebase-admin");
 
-
 const serviceAccount = require("./etuitionbd-7b3ea-firebase-adminsdk.json");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
-
-
 
 // middleware
 app.use(express.json());
@@ -58,6 +55,7 @@ async function run() {
     const userCollection = db.collection("users");
     const tuitionCollection = db.collection("tuition");
     const tutorApplyCollection = db.collection("tutorApply");
+    const paymentCollection = db.collection("payment");
     // must be used after verifyFBToken middleware
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded_email;
@@ -357,7 +355,7 @@ async function run() {
         res.status(500).send({ message: "Server error" });
       }
     });
-     // tutor apply data one get
+    // tutor apply data one get
     app.get("/tutor-apply/email", async (req, res) => {
       const { tutorEmail, status, studentEmail } = req.query;
 
@@ -380,10 +378,9 @@ async function run() {
       const result = await tutorApplyCollection.findOne(query);
       res.send(result);
     });
-     app.patch(
-      "/tutor-apply/:id",
-      
-      
+    app.patch(
+      "/tutor-status-apply/:id",
+
       async (req, res) => {
         const id = req.params.id;
         const statusInfo = req.body;
@@ -397,8 +394,6 @@ async function run() {
         res.send(result);
       }
     );
-
-   
 
     //  tutor apply data edit
     // Update tutor application
@@ -462,6 +457,7 @@ async function run() {
             quantity: 1,
           },
         ],
+        customer_email: paymentInfo.studentEmail,
         mode: "payment",
         metadata: {
           tuitionId: paymentInfo.tuitionId,
@@ -474,6 +470,85 @@ async function run() {
 
       res.send({ url: session.url });
     });
+
+    app.patch("/payment-success", async (req, res) => {
+      const sessionId = req.query.session_id;
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      console.log("session retrieve", session);
+
+      if (session.payment_status === "paid") {
+        const id = session.metadata.tuitionId;
+        const query = { _id: new ObjectId(id) };
+        const update = {
+          $set: {
+            paymentStatus: "paid",
+            status: "approve",
+          },
+        };
+
+        const result = await tutorApplyCollection.updateOne(query, update);
+
+        const payment = {
+          amount: session.amount_total / 100,
+          currency: session.currency,
+          studentEmail: session.customer_email,
+          parcelId: session.metadata.tuitionId,
+          studentSubjects: session.metadata.studentSubjects,
+
+          paymentStatus: session.payment_status,
+          paidAt: new Date(),
+        };
+
+        if (session.payment_status === "paid") {
+          const resultPayment = await paymentCollection.insertOne(payment);
+
+          res.send({
+            success: true,
+            modifyParcel: result,
+
+            transactionId: session.payment_intent,
+            paymentInfo: resultPayment,
+          });
+        }
+      }
+
+      res.send({ success: false });
+    });
+    //  tutor earning
+     app.get('/payments', verifyFBToken, async (req, res) => {
+            const email = req.query.email;
+            const query = {}
+
+            // console.log( 'headers', req.headers);
+
+            if (email) {
+                query.customerEmail = email;
+
+                // check email address
+                if (email !== req.decoded_email) {
+                    return res.status(403).send({ message: 'forbidden access' })
+                }
+            }
+            const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
+            const result = await cursor.toArray();
+            res.send(result);
+        })
+
+        app.get('/payments', verifyFBToken, async (req, res) => {
+  const email = req.query.email;
+  const query = {};
+  if (email) {
+    query.tutorEmail = email;
+    if (email !== req.decoded_email) {
+      return res.status(403).send({ message: 'forbidden access' });
+    }
+  }
+  const result = await paymentCollection.find(query).sort({ paidAt: -1 }).toArray();
+  res.send(result);
+});
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
