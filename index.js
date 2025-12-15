@@ -1,9 +1,12 @@
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const app = express();
+const port = process.env.PORT || 5000;
+require("dotenv").config();
 const cors = require("cors");
-
+const stripe = require("stripe")(process.env.Stripe_pass);
 const admin = require("firebase-admin");
+
 
 const serviceAccount = require("./etuitionbd-7b3ea-firebase-adminsdk.json");
 
@@ -11,8 +14,7 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-require("dotenv").config();
-const port = process.env.PORT || 5000;
+
 
 // middleware
 app.use(express.json());
@@ -55,7 +57,7 @@ async function run() {
     const db = client.db("e-tuition");
     const userCollection = db.collection("users");
     const tuitionCollection = db.collection("tuition");
-
+    const tutorApplyCollection = db.collection("tutorApply");
     // must be used after verifyFBToken middleware
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded_email;
@@ -182,7 +184,7 @@ async function run() {
     });
 
     //  tuitions data get api
-    app.get("/new-tuitions", verifyFBToken, async (req, res) => {
+    app.get("/new-tuitions", async (req, res) => {
       const query = {};
       const { email, status } = req.query;
       if (email) {
@@ -198,9 +200,9 @@ async function run() {
       res.send(result);
     });
 
-//  tutor data get 
+    //  tutor data get
 
-    app.get("/new-tuitions/status",  async (req, res) => {
+    app.get("/new-tuitions/status", async (req, res) => {
       const query = {};
       const { tutorEmail, status } = req.query;
       if (tutorEmail) {
@@ -235,6 +237,14 @@ async function run() {
 
     // get email data
 
+    // single tuition data get
+    app.get("/new-tuitions/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await tuitionCollection.findOne(query);
+      res.send(result);
+    });
+
     // post tuition
     app.post("/new-tuitions", async (req, res) => {
       const tuition = req.body;
@@ -252,51 +262,218 @@ async function run() {
     });
     // tuition pacth data
     app.patch("/new-tuitions/:id", async (req, res) => {
-  const id = req.params.id;
-  const {  studentSubjects, studentClass, studentLocation, studentBudget,} = req.body;
+      const id = req.params.id;
+      const { studentSubjects, studentClass, studentLocation, studentBudget } =
+        req.body;
 
-  const result = await tuitionCollection.updateOne(
-    { _id: new ObjectId(id) },
-    {
-       $set: {
-          
-          studentBudget,
-          studentClass,
-          studentLocation,
-          studentSubjects,
-          updatedAt: new Date(),
-        },
-    }
-  );
+      const result = await tuitionCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            studentBudget,
+            studentClass,
+            studentLocation,
+            studentSubjects,
+            updatedAt: new Date(),
+          },
+        }
+      );
 
-  res.send(result);
-});
-
+      res.send(result);
+    });
 
     //  tutor patch data
 
     app.patch("/new-tuitions/status/:id", async (req, res) => {
-  const id = req.params.id;
-  const { status, tutorEmail, tutorName, qualification, experience, expectedSalary } = req.body;
+      const id = req.params.id;
+      const {
+        status,
+        tutorEmail,
+        tutorName,
+        qualification,
+        experience,
+        expectedSalary,
+      } = req.body;
 
-  const result = await tuitionCollection.updateOne(
-    { _id: new ObjectId(id) },
-    {
-       $set: {
-          status,
+      const result = await tuitionCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            status,
+            tutorEmail,
+            tutorName,
+            qualification,
+            experience,
+            expectedSalary,
+            updatedAt: new Date(), // track when tutor applied
+          },
+        }
+      );
+
+      res.send(result);
+    });
+
+    // post tutor apply data
+    app.post("/tutor-apply", async (req, res) => {
+      try {
+        const tutor = req.body;
+        const { tutorEmail, tuitionId } = tutor;
+
+        if (!tutorEmail || !tuitionId) {
+          return res
+            .status(400)
+            .send({ message: "tutorEmail and tuitionId are required" });
+        }
+
+        // Corrected createdAt
+        tutor.createdAt = new Date();
+
+        // Prevent duplicate application
+        const userExists = await tutorApplyCollection.findOne({
           tutorEmail,
-          tutorName,
+          tuitionId,
+        });
+        if (userExists) {
+          return res.status(400).send({ message: "Already applied" });
+        }
+
+        // Insert tutor application
+        const applyResult = await tutorApplyCollection.insertOne(tutor);
+
+        // Update tuition status
+        const tuitionQuery = { _id: new ObjectId(tuitionId) };
+        const tuitionUpdatedDoc = { $set: { status: "ongoing" } };
+        const tuitionResult = await tuitionCollection.updateOne(
+          tuitionQuery,
+          tuitionUpdatedDoc
+        );
+
+        res.send({
+          insertedId: applyResult.insertedId,
+          tuitionResult,
+        });
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+     // tutor apply data one get
+    app.get("/tutor-apply/email", async (req, res) => {
+      const { tutorEmail, status, studentEmail } = req.query;
+
+      const query = {};
+      if (tutorEmail) query.tutorEmail = tutorEmail;
+      if (status) query.status = status;
+      if (studentEmail) query.studentEmail = studentEmail;
+
+      const result = await tutorApplyCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(result);
+    });
+
+    app.get("/tutor-apply/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await tutorApplyCollection.findOne(query);
+      res.send(result);
+    });
+     app.patch(
+      "/tutor-apply/:id",
+      
+      
+      async (req, res) => {
+        const id = req.params.id;
+        const statusInfo = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            status: statusInfo.status,
+          },
+        };
+        const result = await tutorApplyCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
+
+   
+
+    //  tutor apply data edit
+    // Update tutor application
+    app.patch("/tutor-apply/:id", async (req, res) => {
+      const id = req.params.id;
+      const { qualification, experience, expectedSalary } = req.body;
+
+      const updateDoc = {
+        $set: {
           qualification,
           experience,
           expectedSalary,
-          updatedAt: new Date(), // track when tutor applied
+          updatedAt: new Date(),
         },
-    }
-  );
+      };
 
-  res.send(result);
-});
+      try {
+        const result = await tutorApplyCollection.updateOne(
+          { _id: new ObjectId(id) },
+          updateDoc
+        );
 
+        res.send({ success: true, result });
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    // delete tutor applicatation
+    app.delete("/tutor-apply/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await tutorApplyCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).send({ message: "User not found" });
+      }
+
+      res.send({
+        message: "tutor apply deleted successfully",
+        deletedCount: result.deletedCount,
+      });
+    });
+
+    // payment related apis
+    app.post("/payment-checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.cost) * 100;
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: amount,
+              product_data: {
+                name: `Please pay for: ${paymentInfo.studentSubjects}`,
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        metadata: {
+          tuitionId: paymentInfo.tuitionId,
+          studentEmail: paymentInfo.studentEmail,
+        },
+
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
+      });
+
+      res.send({ url: session.url });
+    });
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log(
