@@ -68,6 +68,18 @@ async function run() {
 
       next();
     };
+    //  verifyTutor
+    const verifyTutor = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await userCollection.findOne(query);
+
+      if (!user || user.role !== "tutor") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      next();
+    };
 
     // role base data
     app.get("/users/tutors", async (req, res) => {
@@ -84,29 +96,14 @@ async function run() {
     });
 
     // get data for user
-    app.get("/user/:id", async (req, res) => {
-      const { email } = req.query;
-      if (email) {
-        query.studentEmail = email;
-      }
-
-      if (!user) {
-        return res.status(404).send({ message: "User not found" });
-      }
-
-      res.send(user);
-    });
-
-    // get single user by id in admin
-    app.get("/users/:id", async (req, res) => {
+    app.get("/users/:id", verifyFBToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
-      const user = await userCollection.findOne({ _id: new ObjectId(id) });
 
-      if (!user) {
-        return res.status(404).send({ message: "User not found" });
-      }
+      const result = await userCollection.findOne({
+        _id: new ObjectId(id),
+      });
 
-      res.send(user);
+      res.send(result);
     });
 
     // Delete a user by ID
@@ -125,7 +122,7 @@ async function run() {
     });
 
     // users related apis
-    app.get("/users", verifyFBToken, async (req, res) => {
+    app.get("/all-users", verifyFBToken, async (req, res) => {
       const searchText = req.query.searchText;
       const query = {};
 
@@ -165,6 +162,35 @@ async function run() {
       }
     );
 
+    app.get("/users", async (req, res) => {
+      const query = {};
+      const { email } = req.query;
+      if (email) {
+        query.email = email;
+      }
+      const user = await userCollection.findOne({ email });
+      res.send(user);
+    });
+
+    // update role
+    app.patch(
+      "/users/:id",
+
+      async (req, res) => {
+        const id = req.params.id;
+        const statusInfo = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            displayName: statusInfo.displayName,
+            photoURL: statusInfo.photoURL,
+          },
+        };
+        const result = await userCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
+
     // user data post api
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -181,7 +207,7 @@ async function run() {
       res.send(result);
     });
 
-    //  tuitions data get ap
+    //  tuitions data get api
     app.get("/new-tuitions", async (req, res) => {
       const query = {};
       const { email, status } = req.query;
@@ -216,23 +242,6 @@ async function run() {
       res.send(result);
     });
 
-    // admin ar data
-    // app.get("/new-tuition", async (req, res) => {
-    //   const query = {};
-    //   const { email, status } = req.query;
-    //   if (email) {
-    //     query.studentEmail = email;
-    //   }
-    //   if (status) {
-    //     query.status = status;
-    //   }
-
-    //   const options = { sort: { createdAt: -1 } };
-    //   const cursor = tuitionCollection.find(query, options);
-    //   const result = await cursor.toArray();
-    //   res.send(result);
-    // });
-
     // get email data
 
     // single tuition data get
@@ -261,21 +270,18 @@ async function run() {
     // tuition pacth data
     app.patch("/new-tuitions/:id", async (req, res) => {
       const id = req.params.id;
-      const { studentSubjects, studentClass, studentLocation, studentBudget } =
-        req.body;
+      const Updates = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          studentBudget: Updates.studentBudget,
+          studentLocation: Updates.studentLocation,
+          studentClass: Updates.studentClass,
+          studentSubjects: Updates.studentSubjects,
+        },
+      };
 
-      const result = await tuitionCollection.updateOne(
-        { _id: new ObjectId(id) },
-        {
-          $set: {
-            studentBudget,
-            studentClass,
-            studentLocation,
-            studentSubjects,
-            updatedAt: new Date(),
-          },
-        }
-      );
+      const result = await tuitionCollection.updateOne(query, updatedDoc);
 
       res.send(result);
     });
@@ -284,29 +290,14 @@ async function run() {
 
     app.patch("/new-tuitions/status/:id", async (req, res) => {
       const id = req.params.id;
-      const {
-        status,
-        tutorEmail,
-        tutorName,
-        qualification,
-        experience,
-        expectedSalary,
-      } = req.body;
-
-      const result = await tuitionCollection.updateOne(
-        { _id: new ObjectId(id) },
-        {
-          $set: {
-            status,
-            tutorEmail,
-            tutorName,
-            qualification,
-            experience,
-            expectedSalary,
-            updatedAt: new Date(), // track when tutor applied
-          },
-        }
-      );
+      const updateStatus = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          status: updateStatus.status,
+        },
+      };
+      const result = await tuitionCollection.updateOne(query, updatedDoc);
 
       res.send(result);
     });
@@ -400,7 +391,7 @@ async function run() {
     app.patch("/tutor-apply/:id", async (req, res) => {
       const id = req.params.id;
       const { qualification, experience, expectedSalary } = req.body;
-
+      const query = { _id: new ObjectId(id) };
       const updateDoc = {
         $set: {
           qualification,
@@ -410,17 +401,8 @@ async function run() {
         },
       };
 
-      try {
-        const result = await tutorApplyCollection.updateOne(
-          { _id: new ObjectId(id) },
-          updateDoc
-        );
-
-        res.send({ success: true, result });
-      } catch (err) {
-        console.error(err);
-        res.status(500).send({ message: "Server error" });
-      }
+      const result = await tutorApplyCollection.updateOne(query, updateDoc);
+      res.send(result);
     });
 
     // delete tutor applicatation
@@ -462,6 +444,9 @@ async function run() {
         metadata: {
           tuitionId: paymentInfo.tuitionId,
           studentEmail: paymentInfo.studentEmail,
+          studentSubjects: paymentInfo.studentSubjects,
+
+          studentName: paymentInfo.studentName,
         },
 
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
@@ -496,7 +481,7 @@ async function run() {
           studentEmail: session.customer_email,
           parcelId: session.metadata.tuitionId,
           studentSubjects: session.metadata.studentSubjects,
-
+          studentName: session.metadata.studentName,
           paymentStatus: session.payment_status,
           paidAt: new Date(),
         };
@@ -517,37 +502,24 @@ async function run() {
       res.send({ success: false });
     });
     //  tutor earning
-     app.get('/payments', verifyFBToken, async (req, res) => {
-            const email = req.query.email;
-            const query = {}
+    app.get("/payments", async (req, res) => {
+      const email = req.query.email;
+      const query = {};
 
-            // console.log( 'headers', req.headers);
+      // console.log( 'headers', req.headers);
 
-            if (email) {
-                query.customerEmail = email;
+      if (email) {
+        query.studentEmail = email;
 
-                // check email address
-                if (email !== req.decoded_email) {
-                    return res.status(403).send({ message: 'forbidden access' })
-                }
-            }
-            const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
-            const result = await cursor.toArray();
-            res.send(result);
-        })
-
-        app.get('/payments', verifyFBToken, async (req, res) => {
-  const email = req.query.email;
-  const query = {};
-  if (email) {
-    query.tutorEmail = email;
-    if (email !== req.decoded_email) {
-      return res.status(403).send({ message: 'forbidden access' });
-    }
-  }
-  const result = await paymentCollection.find(query).sort({ paidAt: -1 }).toArray();
-  res.send(result);
-});
+        // check email address
+        // if (email !== req.decoded_email) {
+        //   return res.status(403).send({ message: "forbidden access" });
+        // }
+      }
+      const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
+      const result = await cursor.toArray();
+      res.send(result);
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
