@@ -49,7 +49,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const db = client.db("e-tuition");
     const userCollection = db.collection("users");
@@ -88,7 +88,7 @@ async function run() {
     });
 
     //  role base data get
-    app.get("/users/:email/role", verifyFBToken, verifyAdmin, async (req, res) => {
+    app.get("/users/:email/role", verifyFBToken,  async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const user = await userCollection.findOne(query);
@@ -107,7 +107,7 @@ async function run() {
     });
 
     // Delete a user by ID
-    app.delete("/users/:id", verifyFBToken, verifyAdmin, async (req, res) => {
+    app.delete("/users/:id", verifyFBToken, async (req, res) => {
       const id = req.params.id;
       const result = await userCollection.deleteOne({ _id: new ObjectId(id) });
 
@@ -122,7 +122,7 @@ async function run() {
     });
 
     // users related apis
-    app.get("/all-users", verifyFBToken, verifyAdmin, async (req, res) => {
+    app.get("/all-users", verifyFBToken, async (req, res) => {
       const searchText = req.query.searchText;
       const query = {};
 
@@ -175,7 +175,7 @@ async function run() {
     // update role
     app.patch(
       "/users/:id",
-       verifyFBToken,
+
       async (req, res) => {
         const id = req.params.id;
         const statusInfo = req.body;
@@ -429,7 +429,7 @@ async function run() {
       }
     );
 
-
+    //  tutor apply data edit
     // Update tutor application
     app.patch(
       "/tutor-apply/:id",
@@ -513,8 +513,16 @@ async function run() {
       const sessionId = req.query.session_id;
 
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-
-      console.log("session retrieve", session);
+      const query = { parcelId: session.metadata.tuitionId };
+      const paymentExit = await paymentCollection.findOne(query);
+      console.log(paymentExit);
+      if (paymentExit) {
+        return res.send({
+          message: "already exit transactionId",
+          transactionId,
+          trackingId: paymentExit.trackingId,
+        });
+      }
 
       if (session.payment_status === "paid") {
         const id = session.metadata.tuitionId;
@@ -575,7 +583,7 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
